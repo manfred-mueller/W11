@@ -20,11 +20,11 @@ jobs:
 
     - name: Download Windows 10 ISO
       run: |
-        curl -L -o Win10_22H2_German_x64.iso "https://files.rg-adguard.net/file/fb2f8705-4b41-362e-1f6c-b191a59486b5"
+        curl -L -o Win10_22H2_German_x64.iso "https://dlgbit.winfuture.de/TWur5oDnpPvuV9nz2GZ9RQ/1739826743/3891/software/WindowsISOs/Win10_22H2_German_x64.iso"
 
     - name: Download Windows 11 ISO
       run: |
-        curl -L -o Win11_24H2_German_x64.iso "https://files.rg-adguard.net/file/a9dfd870-8e3b-9bf0-6bfc-ba91071754be"
+        curl -L -o Win11_24H2_German_x64.iso "https://dlgbit.winfuture.de/rJp-PXSm-7UxjOr4ThBGyg/1739839125/4051/software/Windows11ISO/Win11_24H2_German_x64.iso"
 
     - name: Extract ISOs using 7zip
       run: |
