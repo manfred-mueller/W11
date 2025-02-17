@@ -37,7 +37,7 @@ jobs:
 
     - name: Create new ISO with replaced install.wim
       run: |
-        genisoimage -o Windows10_Modified.iso -b boot/etfsboot.com -no-emul-boot -boot-load-size 4 -boot-info-table -R -J Win10
+        genisoimage -o Windows10_Modified.iso -b boot/etfsboot.com -no-emul-boot -allow-limited-size -iso-level 3 -boot-load-size 4 -boot-info-table -R -J Win10
 
     - name: Upload new ISO as artifact
       uses: actions/upload-artifact@v4
