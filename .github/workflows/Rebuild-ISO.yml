@@ -40,7 +40,7 @@ jobs:
         genisoimage -o Windows10_Modified.iso -b boot/etfsboot.com -no-emul-boot -boot-load-size 4 -boot-info-table -R -J Win10
 
     - name: Upload new ISO as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Windows10_Modified.iso
         path: Windows10_Modified.iso
