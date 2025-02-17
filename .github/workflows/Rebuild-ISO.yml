@@ -1,0 +1,72 @@
+name: Replace install.wim in Windows ISO
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Runs every Monday at midnight (UTC)
+  workflow_dispatch:  # Allows you to trigger the workflow manually
+
+jobs:
+  replace-install-wim:
+    runs-on: windows-latest  # Use a Windows runner for running PowerShell scripts
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Download Fido.ps1 Script
+      run: |
+        Invoke-WebRequest -Uri https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1 -OutFile Fido.ps1
+
+    - name: Install PowerShell dependencies
+      run: |
+        # Install any necessary dependencies if needed for Fido.ps1 script execution
+        # For example, this step is used to install 'BitsTransfer' (if necessary) for downloading ISOs
+        Install-WindowsFeature -Name Bits
+
+    - name: Run Fido.ps1 to download ISOs
+      run: |
+        .\Fido.ps1 -Windows10 -OutputDirectory $(PWD)  # Downloads Windows 10 22H2
+        .\Fido.ps1 -Windows11 -OutputDirectory $(PWD)  # Downloads Windows 11 24H2
+
+    - name: Extract ISOs using 7zip
+      run: |
+        7z x Win10_22H2_German_x64.iso -oWin10
+        7z x Win11_24H2_German_x64.iso -oWin11
+
+    - name: Replace install.wim from Win11 to Win10
+      run: |
+        cp Win11/sources/install.wim Win10/sources/install.wim
+
+    - name: Create new ISO with replaced install.wim
+      run: |
+        genisoimage -o Windows10_Modified.iso -b boot/etfsboot.com -no-emul-boot -boot-load-size 4 -boot-info-table -R -J Win10
+
+    - name: Upload new ISO as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Windows10_Modified.iso
+        path: Windows10_Modified.iso
+
+    - name: Get current date as tag
+      id: get_date
+      run: |
+        current_date=$(date +"%d.%m.%Y")  # Get current date in tt.mm.Y format
+        echo "tag_name=${current_date}" >> $GITHUB_ENV
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: "${{ env.tag_name }}"  # Use the formatted date as the tag
+        release_name: "Windows 10 Modified - ${{ env.tag_name }}"
+        body: "This release contains the modified Windows 10 ISO with the install.wim from Windows 11."
+        draft: false
+        prerelease: false
+
+    - name: Upload ISO to GitHub Release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        files: Windows10_Modified.iso
