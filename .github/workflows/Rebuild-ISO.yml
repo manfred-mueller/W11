@@ -16,18 +16,13 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y p7zip-full genisoimage curl
+        sudo apt install -y p7zip-full aria2 wimtools chntpw genisoimage curl
 
-    - name: Download Windows 10 22H2 German ISO
+    - name: Download Windows 10 22H2 German ISO using UUP dump
       run: |
-        git clone https://github.com/AveYo/MediaCreationTool.bat.git
-        cd MediaCreationTool.bat
-        echo "AutoRun=1" > MediaCreationTool.ini
-        echo "Edition=22H2" >> MediaCreationTool.ini
-        echo "Language=German" >> MediaCreationTool.ini
-        echo "Arch=x64" >> MediaCreationTool.ini
-        echo "AutoSetup=DownloadISO" >> MediaCreationTool.ini
-        ./MediaCreationTool.bat
+        git clone https://github.com/uup-dump/uupdump.git
+        cd uupdump
+        ./uup_download_linux.sh --lang de-de --edition professional --releaseid 22H2 --arch x64 --virtualedition enterprise --autodownload
 
     - name: Download Windows 11 24H2 German ISO
       run: |
