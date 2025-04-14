@@ -18,18 +18,17 @@ jobs:
         sudo apt update
         sudo apt install -y p7zip-full aria2 wimtools chntpw genisoimage curl
 
-    - name: Download Windows 10 22H2 German ISO using UUP dump
+    - name: Download Windows 10 21H2 German ISO
       run: |
-        git clone https://github.com/uup-dump/uup-dump.git
-        cd uup-dump
-        chmod +x uup_download_linux.sh
-        ./uup_download_linux.sh --lang de-de --edition professional --releaseid 22H2 --arch x64 --virtualedition enterprise --autodownload
-        
+        curl -L -o Win10_21H2_German_x64.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/Win10_21H2_German_x64.iso"
+        mv Win10_21H2_German_x64.iso Win10.iso
+
     - name: Download Windows 11 24H2 German ISO
       run: |
         curl -L -o MediaCreationTool.exe https://go.microsoft.com/fwlink/?linkid=2156295
         chmod +x MediaCreationTool.exe
         ./MediaCreationTool.exe /Eula Accept /Retail /MediaLangCode de-DE /Edition Windows11 /MediaArch x64 /Download /Quiet
+        mv *.iso Win11.iso
 
     - name: Extract ISOs using 7zip
       run: |
