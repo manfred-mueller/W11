@@ -2,12 +2,12 @@ name: Replace install.wim in Windows ISO
 
 on:
   schedule:
-    - cron: '0 0 * * 1'  # Runs every Monday at midnight (UTC)
-  workflow_dispatch:  # Allows you to trigger the workflow manually
+    - cron: '0 0 * * 1'  # Every Monday
+  workflow_dispatch:
 
 jobs:
   replace-install-wim:
-    runs-on: ubuntu-latest  # Use an Ubuntu runner, or change it based on your platform
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout repository
@@ -20,16 +20,18 @@ jobs:
 
     - name: Download Windows 10 ISO
       run: |
-        curl -L -o Win10_22H2_German_x64.iso "https://dlgbit.winfuture.de/TWur5oDnpPvuV9nz2GZ9RQ/1739826743/3891/software/WindowsISOs/Win10_22H2_German_x64.iso"
+        curl -L -o Win10.iso "https://dlgbit.winfuture.de/TWur5oDnpPvuV9nz2GZ9RQ/1739826743/3891/software/WindowsISOs/Win10_22H2_German_x64.iso"
+        7z t Win10.iso || (echo "Win10 ISO is corrupted" && exit 1)
 
     - name: Download Windows 11 ISO
       run: |
-        curl -L -o Win11_24H2_German_x64.iso "https://dlgbit.winfuture.de/rJp-PXSm-7UxjOr4ThBGyg/1739839125/4051/software/Windows11ISO/Win11_24H2_German_x64.iso"
+        curl -L -o Win11.iso "https://dlgbit.winfuture.de/rJp-PXSm-7UxjOr4ThBGyg/1739839125/4051/software/Windows11ISO/Win11_24H2_German_x64.iso"
+        7z t Win11.iso || (echo "Win11 ISO is corrupted" && exit 1)
 
     - name: Extract ISOs using 7zip
       run: |
-        7z x Win10_22H2_German_x64.iso -oWin10
-        7z x Win11_24H2_German_x64.iso -oWin11
+        7z x Win10.iso -oWin10
+        7z x Win11.iso -oWin11
 
     - name: Replace install.wim from Win11 to Win10
       run: |
@@ -37,7 +39,15 @@ jobs:
 
     - name: Create new ISO with replaced install.wim
       run: |
-        genisoimage -o Windows10_Modified.iso -b boot/etfsboot.com -no-emul-boot -allow-limited-size -iso-level 3 -boot-load-size 4 -boot-info-table -R -J Win10
+        genisoimage \
+          -o Windows10_Modified.iso \
+          -b boot/etfsboot.com \
+          -no-emul-boot \
+          -allow-limited-size \
+          -iso-level 3 \
+          -boot-load-size 4 \
+          -boot-info-table \
+          -R -J Win10
 
     - name: Upload new ISO as artifact
       uses: actions/upload-artifact@v4
@@ -47,16 +57,14 @@ jobs:
 
     - name: Get current date as tag
       id: get_date
-      run: |
-        current_date=$(date +"%d.%m.%Y")  # Get current date in tt.mm.Y format
-        echo "tag_name=${current_date}" >> $GITHUB_ENV
+      run: echo "tag_name=$(date +'%d.%m.%Y')" >> $GITHUB_ENV
 
     - name: Create GitHub Release
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: "${{ env.tag_name }}"  # Use the formatted date as the tag
+        tag_name: "${{ env.tag_name }}"
         release_name: "Windows 10 Modified - ${{ env.tag_name }}"
         body: "This release contains the modified Windows 10 ISO with the install.wim from Windows 11."
         draft: false
