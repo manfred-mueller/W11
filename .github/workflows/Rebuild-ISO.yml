@@ -20,12 +20,12 @@ jobs:
 
     - name: Download Windows 10 ISO
       run: |
-        curl -L -o Win10.iso "https://dlgbit.winfuture.de/TWur5oDnpPvuV9nz2GZ9RQ/1739826743/3891/software/WindowsISOs/Win10_22H2_German_x64.iso"
+        curl -L -o Win10.iso "https://securedl.cdn.chip.de/downloads/35017006/Win10_22H2_German_x64.iso?cdr=4&cid=81515537&platform=chip&1744611672-1744619172-76c26b-B-f2db84e3c5ddc7a9549042bea9cf2d7f"
         7z t Win10.iso || (echo "Win10 ISO is corrupted" && exit 1)
 
     - name: Download Windows 11 ISO
       run: |
-        curl -L -o Win11.iso "https://dlgbit.winfuture.de/rJp-PXSm-7UxjOr4ThBGyg/1739839125/4051/software/Windows11ISO/Win11_24H2_German_x64.iso"
+        curl -L -o Win11.iso "https://securedl.cdn.chip.de/downloads/126531758/Win11_24H2_German_x64.iso?cdr=4&cid=183880484&platform=chip&1744611764-1744619264-cb0667-B-f5034996676a42cf29c12765501828e5"
         7z t Win11.iso || (echo "Win11 ISO is corrupted" && exit 1)
 
     - name: Extract ISOs using 7zip
