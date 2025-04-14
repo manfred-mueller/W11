@@ -18,15 +18,22 @@ jobs:
         sudo apt update
         sudo apt install -y p7zip-full genisoimage curl
 
-    - name: Download Windows 10 ISO
+    - name: Download Windows 10 22H2 German ISO
       run: |
-        curl -L -o Win10.iso "https://securedl.cdn.chip.de/downloads/35017006/Win10_22H2_German_x64.iso?cdr=4&cid=81515537&platform=chip&1744611672-1744619172-76c26b-B-f2db84e3c5ddc7a9549042bea9cf2d7f"
-        7z t Win10.iso || (echo "Win10 ISO is corrupted" && exit 1)
+        git clone https://github.com/AveYo/MediaCreationTool.bat.git
+        cd MediaCreationTool.bat
+        echo "AutoRun=1" > MediaCreationTool.ini
+        echo "Edition=22H2" >> MediaCreationTool.ini
+        echo "Language=German" >> MediaCreationTool.ini
+        echo "Arch=x64" >> MediaCreationTool.ini
+        echo "AutoSetup=DownloadISO" >> MediaCreationTool.ini
+        ./MediaCreationTool.bat
 
-    - name: Download Windows 11 ISO
+    - name: Download Windows 11 24H2 German ISO
       run: |
-        curl -L -o Win11.iso "https://securedl.cdn.chip.de/downloads/126531758/Win11_24H2_German_x64.iso?cdr=4&cid=183880484&platform=chip&1744611764-1744619264-cb0667-B-f5034996676a42cf29c12765501828e5"
-        7z t Win11.iso || (echo "Win11 ISO is corrupted" && exit 1)
+        curl -L -o MediaCreationTool.exe https://go.microsoft.com/fwlink/?linkid=2156295
+        chmod +x MediaCreationTool.exe
+        ./MediaCreationTool.exe /Eula Accept /Retail /MediaLangCode de-DE /Edition Windows11 /MediaArch x64 /Download /Quiet
 
     - name: Extract ISOs using 7zip
       run: |
