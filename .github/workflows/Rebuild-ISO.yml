@@ -26,7 +26,7 @@ jobs:
     - name: Download Windows 11 24H2 German ISO
       run: |
         curl -L -o Win11_24H2_German_x64.iso "https://dlgbit.winfuture.de/cw_gbg4AnD2wyQe9bkkyMA/1744655597/4051/software/Windows11ISO/Win11_24H2_German_x64.iso"
-        mv Win11_24H2_German_x64.iso Win10.iso
+        mv Win11_24H2_German_x64.iso Win11.iso
         
     - name: Extract ISOs using 7zip
       run: |
