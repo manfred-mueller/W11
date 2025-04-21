@@ -1,78 +1,60 @@
-name: Replace install.wim in Windows ISO
+name: Build Custom Windows ISO
 
 on:
-  schedule:
-    - cron: '0 0 * * 1'  # Every Monday
   workflow_dispatch:
 
 jobs:
-  replace-install-wim:
+  build:
     runs-on: ubuntu-latest
+    name: Create Win11 Bootable ISO with Win10 Setup
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y p7zip-full wget genisoimage xorriso
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y p7zip-full aria2 wimtools chntpw genisoimage curl
+      - name: Download Windows 10 ISO (German)
+        run: |
+          wget -O Win10.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/19041.208.Vibranium-X64-DE-CLIENTPRO%20.ISO"
 
-    - name: Download Windows 10 21H2 German ISO
-      run: |
-        curl -L -o Win10_21H2_German_x64.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/Win10_21H2_German_x64.iso"
-        mv Win10_21H2_German_x64.iso Win10.iso
+      - name: Download Windows 11 ISO (German)
+        run: |
+          wget -O Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
 
-    - name: Download Windows 11 24H2 German ISO
-      run: |
-        curl -L -o Win11_24H2_German_x64.iso "https://dlgbit.winfuture.de/cw_gbg4AnD2wyQe9bkkyMA/1744655597/4051/software/Windows11ISO/Win11_24H2_German_x64.iso"
-        mv Win11_24H2_German_x64.iso Win11.iso
-        
-    - name: Extract ISOs using 7zip
-      run: |
-        7z x Win10.iso -oWin10
-        7z x Win11.iso -oWin11
+      - name: Extract ISOs
+        run: |
+          mkdir Win10_Extracted Win11_Extracted
+          7z x Win10.iso -oWin10_Extracted
+          7z x Win11.iso -oWin11_Extracted
 
-    - name: Replace install.wim from Win11 to Win10
-      run: |
-        cp Win11/sources/install.wim Win10/sources/install.wim
+      - name: Replace install.wim
+        run: |
+          src_wim=$(find Win11_Extracted -name "install.wim" | head -n 1)
+          dest_dir="Win10_Extracted/sources"
+          if [ -f "$src_wim" ]; then
+            cp "$src_wim" "$dest_dir/install.wim"
+          else
+            echo "install.wim not found in Win11 ISO."
+            exit 1
+          fi
 
-    - name: Create new ISO with replaced install.wim
-      run: |
-        genisoimage \
-          -o Windows10_Modified.iso \
-          -b boot/etfsboot.com \
-          -no-emul-boot \
-          -allow-limited-size \
-          -iso-level 3 \
-          -boot-load-size 4 \
-          -boot-info-table \
-          -R -J Win10
+      - name: Rebuild ISO using xorriso
+        run: |
+          mkdir iso_output
+          xorriso -as mkisofs \
+            -iso-level 3 \
+            -o custom_win11_installer.iso \
+            -full-iso9660-filenames \
+            -volid "CUSTOM_WIN11" \
+            -b boot/etfsboot.com \
+            -no-emul-boot \
+            -boot-load-size 8 \
+            -boot-info-table \
+            Win10_Extracted
 
-    - name: Upload new ISO as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Windows10_Modified.iso
-        path: Windows10_Modified.iso
-
-    - name: Get current date as tag
-      id: get_date
-      run: echo "tag_name=$(date +'%d.%m.%Y')" >> $GITHUB_ENV
-
-    - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: "${{ env.tag_name }}"
-        release_name: "Windows 10 Modified - ${{ env.tag_name }}"
-        body: "This release contains the modified Windows 10 ISO with the install.wim from Windows 11."
-        draft: false
-        prerelease: false
-
-    - name: Upload ISO to GitHub Release
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: Windows10_Modified.iso
+      - name: Upload Custom ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom_win11_installer
+          path: custom_win11_installer.iso
