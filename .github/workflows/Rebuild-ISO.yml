@@ -5,6 +5,10 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        include:
+        - name: windows-11
     runs-on: ubuntu-latest
     name: Create Win11 Bootable ISO with Win10 Setup
 
@@ -56,7 +60,7 @@ jobs:
       - name: Upload Custom ISO
         uses: actions/upload-artifact@v4
         with:
-          name: custom_win11_installer
+          name: ${{ matrix.name }}
           path: custom_win11_installer.iso
       
       - name: Set artifact_url
@@ -66,23 +70,14 @@ jobs:
       - name: Build summary
         id: build_summary
         run: |
-          $iso = Get-Content (Resolve-Path c:/output/*.json) | ConvertFrom-Json
           Add-Content $env:GITHUB_STEP_SUMMARY @"
           | Property | Value |
           | :--- | :--- |
-          | Name | $($iso.name) |
-          | Build | $($iso.build) |
-          | Checksum | $($iso.checksum) |
-          $($iso.images | ForEach-Object {"| Image Name | $($_.name) |"})
-          | Iso | [$($iso.name)]($env:artifact_url) |
-          | UUP dump | [$($iso.title)]($($iso.uupDump.downloadUrl)) |
+          | Name | [${{ matrix.name }}]($env:artifact_url) |
           "@
           # Save the GITHUB_STEP_SUMMARY contents to a file
           (Get-Content $env:GITHUB_STEP_SUMMARY) | Set-Content summary.md
-          echo "build=$($iso.build)" >> $env:GITHUB_ENV
-          echo "name=$($iso.name)" >> $env:GITHUB_ENV
-          echo "title=$($iso.title)" >> $env:GITHUB_ENV
-          echo "iso_name=$($iso.name)" >> $env:GITHUB_ENV
+          echo "name=${{ matrix.name }}" >> $env:GITHUB_ENV
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
