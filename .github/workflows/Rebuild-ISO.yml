@@ -10,7 +10,7 @@ jobs:
         include:
         - name: windows-11
     runs-on: ubuntu-latest
-    name: Create Win11 Bootable ISO with Win10 Setup
+    name: Create a Win11 bootable ISO with Win10 Setup
 
     steps:
       - name: Install Dependencies
