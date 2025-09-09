@@ -66,20 +66,22 @@ jobs:
 
       - name: Set artifact_url
         shell: pwsh
-        run: echo "artifact_url=${{ steps.upload_artifact.outputs.'artifact-url' }}" >> $env:GITHUB_ENV
+        run: echo "artifact_url=${{ steps.upload_artifact.outputs['artifact-url'] }}" >> $env:GITHUB_ENV
 
       - name: Build summary
         id: build_summary
         shell: pwsh
         run: |
-          Add-Content $env:GITHUB_STEP_SUMMARY @"
-          | Property | Value |
-          | :--- | :--- |
-          | Name | [${{ matrix.name }}]($env:artifact_url) |
-          "@
+          $lines = @(
+            '| Property | Value |'
+            '| :--- | :--- |'
+            "| Name | [${{ matrix.name }}]($env:artifact_url) |"
+          )
+          $lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY
 
           Get-Content $env:GITHUB_STEP_SUMMARY | Set-Content summary.md
           "name=${{ matrix.name }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
