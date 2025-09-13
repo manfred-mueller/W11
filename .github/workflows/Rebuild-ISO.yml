@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 env:
-  ISO_NAME: custom_win11_installer.iso
+  ISO_NAME: windows-11-25h2.iso
   ONEDRIVE_REMOTE: ${{ secrets.ONEDRIVE_REMOTE || 'OneDrive' }}
   ONEDRIVE_PATH:   ${{ secrets.ONEDRIVE_PATH   || 'W11-Releases' }}
 
@@ -189,19 +189,15 @@ jobs:
           # Use the computed date from the 'vars' step:
           name: "Custom Windows 11 ISO (${{ steps.vars.outputs.today }} #${{ github.run_number }})"
           body: |
-            Automated build of custom Windows 11 installer.
+            Automated build of custom Windows 11 25H2.
 
-            - 25H2 eKB integrated: ${{ github.event.inputs.enable_25h2 }}
-            - eKB URL: ${{ github.event.inputs.ekb_raw_url }}
-            - MSU SHA256 enforced: ${{ github.event.inputs.ekb_sha256 != '' }}
             - ISO SHA256: ${{ env.iso_sha256 }}
 
-            🔗 **OneDrive (full ISO):**
-            [${{ env.ISO_NAME }}](${{ steps.od_upload.outputs.link }})
+            🔗 **OneDrive (full ISO):** [${{ env.ISO_NAME }}](${{ steps.od_upload.outputs.link }})
 
             Verify locally:
             ```bash
-            sha256sum -c ${ISO_NAME}.sha256
+            sha256sum -c [${{ env.ISO_NAME }}].sha256
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
