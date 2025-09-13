@@ -1,6 +1,9 @@
 name: Build Custom Windows ISO
 
 on:
+  push:
+    branches:
+      -main
   workflow_dispatch:
     inputs:
       enable_25h2:
