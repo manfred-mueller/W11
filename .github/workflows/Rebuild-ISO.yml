@@ -16,6 +16,9 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -26,32 +29,31 @@ jobs:
     name: Create a Win11 bootable ISO with Win10 Setup
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install Dependencies
         run: |
           set -euxo pipefail
           sudo apt update
-          sudo apt install -y p7zip-full wget genisoimage xorriso dos2unix
+          sudo apt install -y p7zip-full wget xorriso dos2unix
 
       - name: Download Windows 10 ISO (German)
         run: |
-          set -euxo pipefail
           wget -O Win10.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/19041.208.Vibranium-X64-DE-CLIENTPRO%20.ISO"
 
       - name: Download Windows 11 ISO (German)
         run: |
-          set -euxo pipefail
           wget -O Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
 
       - name: Extract ISOs
         run: |
-          set -euxo pipefail
           mkdir -p Win10_Extracted Win11_Extracted
           7z x -y Win10.iso -oWin10_Extracted
           7z x -y Win11.iso -oWin11_Extracted
 
       - name: Replace install.wim
         run: |
-          set -euxo pipefail
           src_wim=$(find Win11_Extracted -type f -name "install.wim" | head -n 1)
           dest_dir="Win10_Extracted/sources"
           if [ -f "$src_wim" ]; then
@@ -61,28 +63,23 @@ jobs:
             exit 1
           fi
 
-      # === 25H2 Enablement via SetupComplete (KB5054156) ===
+      # === Optional: 25H2 Enablement via SetupComplete (KB5054156) ===
       - name: Prepare $OEM$ Scripts directory
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        run: |
-          set -euxo pipefail
-          mkdir -p "Win10_Extracted/sources/\$OEM\$/\$\$/Setup/Scripts"
+        run: mkdir -p "Win10_Extracted/sources/\$OEM\$/\$\$/Setup/Scripts"
 
       - name: Download 25H2 Enablement MSU
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         run: |
-          set -euxo pipefail
           oemdir='Win10_Extracted/sources/$OEM$/$$/Setup/Scripts'
           url='${{ github.event.inputs.ekb_raw_url }}'
           out="$oemdir/Windows11.0-KB5054156-x64.msu"
-          echo "Downloading MSU from: $url"
           wget -O "$out" "$url"
           ls -lh "$out"
 
       - name: Verify MSU SHA256 (strict if provided)
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         run: |
-          set -euxo pipefail
           oemdir='Win10_Extracted/sources/$OEM$/$$/Setup/Scripts'
           file="$oemdir/Windows11.0-KB5054156-x64.msu"
           echo "Computed SHA256:"
@@ -92,91 +89,87 @@ jobs:
             got=$(sha256sum "$file" | awk '{print $1}')
             if [ "$got" != "$exp" ]; then
               echo "ERROR: SHA256 mismatch!"
-              echo "Expected: $exp"
-              echo "Got     : $got"
               exit 1
-            else
-              echo "SHA256 OK."
             fi
-          else
-            echo "WARNING: No expected SHA256 provided; skipping strict verification."
           fi
 
       - name: Write SetupComplete.cmd
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        shell: bash
         run: |
-          set -euxo pipefail
           oemdir='Win10_Extracted/sources/$OEM$/$$/Setup/Scripts'
           cat > "$oemdir/SetupComplete.cmd" << 'EOF'
           @echo off
-          setlocal enabledelayedexpansion
           set LOG=%WINDIR%\Temp\25H2_EKB.log
           echo [%date% %time%] SetupComplete start >> "%LOG%"
 
           set MSU=%~dp0Windows11.0-KB5054156-x64.msu
           if exist "%MSU%" (
             echo [%date% %time%] Installing EKB: %MSU% >> "%LOG%"
-            rem /quiet /norestart to avoid immediate reboot; Windows will complete post-setup
             wusa.exe "%MSU%" /quiet /norestart >> "%LOG%" 2>&1
             echo [%date% %time%] wusa exitcode: !errorlevel! >> "%LOG%"
           ) else (
             echo [%date% %time%] EKB MSU not found in %~dp0 >> "%LOG%"
           )
-          endlocal
           exit /b 0
           EOF
           unix2dos "$oemdir/SetupComplete.cmd" || true
 
-      - name: Rebuild ISO using xorriso
+      - name: Rebuild ISO using xorriso (BIOS + UEFI, multi-extent OK)
         run: |
-          mkdir iso_output
+          set -euxo pipefail
+          pushd Win10_Extracted
+          UEFI_IMG="efi/microsoft/boot/efisys.bin"
+          if [ ! -f "$UEFI_IMG" ]; then
+            UEFI_IMG="efi/microsoft/boot/efisys_noprompt.bin"
+          fi
+          [ -f "$UEFI_IMG" ] || { echo "UEFI boot image missing"; exit 1; }
+          [ -f "boot/etfsboot.com" ] || { echo "BIOS boot image missing"; exit 1; }
+
           xorriso -as mkisofs \
             -iso-level 3 \
-            -o custom_win11_installer.iso \
-            -full-iso9660-filenames \
+            -J -joliet-long \
+            -relaxed-filenames \
             -volid "CUSTOM_WIN11" \
             -b boot/etfsboot.com \
-            -no-emul-boot \
-            -boot-load-size 8 \
-            -boot-info-table \
-            Win10_Extracted
-            
-      - name: Upload Custom ISO
-        id: upload_artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.name }}
-          path: custom_win11_installer.iso
+              -no-emul-boot -boot-load-size 8 -boot-info-table \
+            -eltorito-alt-boot \
+            -e "$UEFI_IMG" \
+              -no-emul-boot \
+            -o ../custom_win11_installer.iso \
+            .
+          popd
 
-      - name: Set artifact_url
-        shell: pwsh
-        run: echo "artifact_url=${{ steps.upload_artifact.outputs['artifact-url'] }}" >> $env:GITHUB_ENV
-
-      - name: Build summary
-        id: build_summary
-        shell: pwsh
+      - name: Compute ISO SHA256
+        id: sha256
         run: |
-          $lines = @(
-            '| Property | Value |'
-            '| :--- | :--- |'
-            "| Name | [${{ matrix.name }}]($env:artifact_url) |",
-            "| 25H2 eKB | ${{ github.event.inputs.enable_25h2 }} |",
-            "| eKB URL | ${{ github.event.inputs.ekb_raw_url }} |",
-            "| SHA256 enforced | ${{ github.event.inputs.ekb_sha256 != '' }} |"
-          )
-          $lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          Get-Content $env:GITHUB_STEP_SUMMARY | Set-Content summary.md
-          "name=${{ matrix.name }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          HASH=$(sha256sum custom_win11_installer.iso | awk '{print $1}')
+          echo "iso_sha256=$HASH" >> $GITHUB_ENV
+          echo "ISO SHA256: $HASH"
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Write ISO SHA256 file
+        run: |
+          echo "${{ env.iso_sha256 }}  custom_win11_installer.iso" > custom_win11_installer.iso.sha256
+          cat custom_win11_installer.iso.sha256
+
+      - name: Create GitHub Release and upload ISO + SHA256 (raw, not zipped)
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ github.run_number }}"
-          release_name: ${{ env.name }}
-          body_path: summary.md
-          draft: false
-          prerelease: false
+          name: "Custom Windows 11 ISO ($(date +'%Y-%m-%d') #${{ github.run_number }})"
+          body: |
+            Automated build of custom Windows 11 installer.
+
+            - 25H2 eKB integrated: ${{ github.event.inputs.enable_25h2 }}
+            - eKB URL: ${{ github.event.inputs.ekb_raw_url }}
+            - MSU SHA256 enforced: ${{ github.event.inputs.ekb_sha256 != '' }}
+            - ISO SHA256: ${{ env.iso_sha256 }}
+
+            Verify locally:
+            ```bash
+            sha256sum -c custom_win11_installer.iso.sha256
+            ```
+          files: |
+            custom_win11_installer.iso
+            custom_win11_installer.iso.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
