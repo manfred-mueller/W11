@@ -21,7 +21,7 @@ permissions:
 
 env:
   ISO_NAME: custom_win11_installer.iso
-  ONEDRIVE_REMOTE: ${{ secrets.ONEDRIVE_REMOTE || 'onedrive' }}
+  ONEDRIVE_REMOTE: ${{ secrets.ONEDRIVE_REMOTE || 'OneDrive' }}
   ONEDRIVE_PATH:   ${{ secrets.ONEDRIVE_PATH   || 'W11-Releases' }}
 
 jobs:
