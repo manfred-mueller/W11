@@ -128,28 +128,20 @@ jobs:
           EOF
           unix2dos "$oemdir/SetupComplete.cmd" || true
 
-      - name: Rebuild ISO using genisoimage (UDF + BIOS/UEFI)
+      - name: Rebuild ISO using xorriso
         run: |
-          set -euxo pipefail
-          bios_boot="Win10_Extracted/boot/etfsboot.com"
-          uefi_boot="Win10_Extracted/efi/microsoft/boot/efisys.bin"
-          if [ ! -f "$bios_boot" ]; then echo "Missing $bios_boot"; exit 1; fi
-          if [ ! -f "$uefi_boot" ]; then echo "Missing $uefi_boot"; exit 1; fi
-
-          genisoimage \
+          mkdir iso_output
+          xorriso -as mkisofs \
             -iso-level 3 \
-            -udf \
-            -J -joliet-long \
-            -relaxed-filenames \
-            -V "CUSTOM_WIN11" \
-            -b boot/etfsboot.com \
-              -no-emul-boot -boot-load-size 8 -boot-info-table \
-            -eltorito-alt-boot \
-            -e efi/microsoft/boot/efisys.bin \
-              -no-emul-boot \
             -o custom_win11_installer.iso \
+            -full-iso9660-filenames \
+            -volid "CUSTOM_WIN11" \
+            -b boot/etfsboot.com \
+            -no-emul-boot \
+            -boot-load-size 8 \
+            -boot-info-table \
             Win10_Extracted
-
+            
       - name: Upload Custom ISO
         id: upload_artifact
         uses: actions/upload-artifact@v4
