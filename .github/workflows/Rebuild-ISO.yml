@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt update
-          sudo apt install -y p7zip-full wget genisoimage xorriso
+          sudo apt install -y p7zip-full wget genisoimage xorriso dos2unix
 
       - name: Download Windows 10 ISO (German)
         run: |
@@ -131,7 +131,6 @@ jobs:
       - name: Rebuild ISO using xorriso (BIOS+UEFI)
         run: |
           set -euxo pipefail
-          # Windows boot files
           bios_boot="Win10_Extracted/boot/etfsboot.com"
           uefi_boot="Win10_Extracted/efi/microsoft/boot/efisys.bin"
           if [ ! -f "$bios_boot" ]; then echo "Missing $bios_boot"; exit 1; fi
@@ -163,3 +162,29 @@ jobs:
         run: echo "artifact_url=${{ steps.upload_artifact.outputs['artifact-url'] }}" >> $env:GITHUB_ENV
 
       - name: Build summary
+        id: build_summary
+        shell: pwsh
+        run: |
+          $lines = @(
+            '| Property | Value |'
+            '| :--- | :--- |'
+            "| Name | [${{ matrix.name }}]($env:artifact_url) |",
+            "| 25H2 eKB | ${{ github.event.inputs.enable_25h2 }} |",
+            "| eKB URL | ${{ github.event.inputs.ekb_raw_url }} |",
+            "| SHA256 enforced | ${{ github.event.inputs.ekb_sha256 != '' }} |"
+          )
+          $lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          Get-Content $env:GITHUB_STEP_SUMMARY | Set-Content summary.md
+          "name=${{ matrix.name }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v${{ github.run_number }}"
+          release_name: ${{ env.name }}
+          body_path: summary.md
+          draft: false
+          prerelease: false
