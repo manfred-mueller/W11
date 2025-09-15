@@ -1,4 +1,4 @@
-name: Build Custom Windows 11 ISO (Windows Runner, oscdimg via curl)
+name: Build Custom Windows 11 ISO (Windows Runner, oscdimg via curl + OneDrive)
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          # oscdimg direkt laden
+          # oscdimg direkt laden (keine ADK/Chocolatey-Abhängigkeit)
           curl.exe -L -A "Microsoft-Symbol-Server/10.0.0.0" `
             "https://msdl.microsoft.com/download/symbols/oscdimg.exe/688CABB065000/oscdimg.exe" `
             -o oscdimg.exe
@@ -47,12 +47,28 @@ jobs:
           Unblock-File .\oscdimg.exe
           "OSCDIMG=$((Resolve-Path .\oscdimg.exe).Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-          # 7-Zip & rclone für Extraktion/Upload
+          # 7-Zip & rclone installieren
           choco install 7zip -y --no-progress
           choco install rclone -y --no-progress
-
           & "$Env:ProgramFiles\7-Zip\7z.exe" | Out-Null
           rclone version | Out-Null
+
+      # --- OneDrive / rclone Konfiguration (Windows-Port deiner Linux-Variante) ---
+      - name: Restore rclone config (Windows, from BASE64)
+        shell: powershell
+        env:
+          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrEmpty($env:RCLONE_CONFIG_BASE64)) {
+            throw "RCLONE_CONFIG_BASE64 secret is missing"
+          }
+          $cfgDir = "$env:APPDATA\rclone"
+          New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+          $bytes = [Convert]::FromBase64String($env:RCLONE_CONFIG_BASE64)
+          [IO.File]::WriteAllBytes((Join-Path $cfgDir 'rclone.conf'), $bytes)
+          Write-Host "rclone.conf written to $cfgDir"
+          rclone listremotes
 
       - name: Download Windows 10 ISO (German)
         shell: powershell
@@ -81,15 +97,15 @@ jobs:
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts" | Out-Null
+          New-Item -ItemType Directory -Force -Path 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts' | Out-Null
 
       - name: Download 25H2 Enablement MSU
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         shell: powershell
         run: |
-          $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
+          $oem = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
           $url = "${{ github.event.inputs.ekb_raw_url }}"
-          $out = Join-Path $oem "Windows11.0-KB5054156-x64.msu"
+          $out = Join-Path $oem 'Windows11.0-KB5054156-x64.msu'
           curl.exe -L -o $out $url
           Get-Item $out | Format-List Name,Length,FullName
 
@@ -97,8 +113,8 @@ jobs:
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         shell: powershell
         run: |
-          $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
-          $file = Join-Path $oem "Windows11.0-KB5054156-x64.msu"
+          $oem = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
+          $file = Join-Path $oem 'Windows11.0-KB5054156-x64.msu'
           $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
           Write-Host "Computed SHA256: $hash"
           $exp = "${{ github.event.inputs.ekb_sha256 }}"
@@ -110,7 +126,7 @@ jobs:
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         shell: powershell
         run: |
-          $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
+          $oem = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
           @'
           @echo off
           setlocal EnableDelayedExpansion
@@ -125,7 +141,7 @@ jobs:
             echo [%date% %time%] EKB MSU not found in %~dp0 >> "%LOG%"
           )
           exit /b 0
-          '@ | Set-Content -Path (Join-Path $oem "SetupComplete.cmd") -Encoding ASCII
+          '@ | Set-Content -Path (Join-Path $oem 'SetupComplete.cmd') -Encoding ASCII
 
       - name: Build ISO with oscdimg (UDF + ISO9660, BIOS+UEFI)
         shell: powershell
@@ -153,21 +169,15 @@ jobs:
           "$h $($env:ISO_NAME)" | Out-File "$env:ISO_NAME.sha256" -Encoding ascii
           "iso_sha256=$h" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Configure rclone (from base64 secret)
-        if: ${{ env.RCLONE_CONFIG_BASE64 != '' }}
+      - name: Validate OneDrive remote
         shell: powershell
         run: |
-          $cfgDir = "$env:APPDATA\rclone"
-          New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
-          $bytes = [Convert]::FromBase64String($env:RCLONE_CONFIG_BASE64)
-          [IO.File]::WriteAllBytes((Join-Path $cfgDir 'rclone.conf'), $bytes)
-          rclone config file
+          rclone listremotes
+          rclone about "${{ env.ONEDRIVE_REMOTE }}:" | Out-Null
 
       - name: Upload ISO + SHA256 to OneDrive and create share link
         id: upload
         shell: powershell
-        env:
-          RCLONE_CONFIG: ${{ env.RCLONE_CONFIG }} # optional alternative to BASE64
         run: |
           $target = "${{ env.ONEDRIVE_REMOTE }}:${{ env.ONEDRIVE_PATH }}/$(Get-Date -Format 'yyyy-MM-dd')-run-${{ github.run_number }}"
           rclone mkdir $target | Out-Null
