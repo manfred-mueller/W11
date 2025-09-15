@@ -57,12 +57,12 @@ jobs:
       - name: Download Windows 10 ISO (German)
         shell: powershell
         run: |
-          curl -L -o Win10.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/19041.208.Vibranium-X64-DE-CLIENTPRO%20.ISO"
+          curl.exe -L -o Win10.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/19041.208.Vibranium-X64-DE-CLIENTPRO%20.ISO"
 
       - name: Download Windows 11 ISO (German)
         shell: powershell
         run: |
-          curl -L -o Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
+          curl.exe -L -o Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
 
       - name: Extract ISOs
         shell: powershell
@@ -90,7 +90,7 @@ jobs:
           $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
           $url = "${{ github.event.inputs.ekb_raw_url }}"
           $out = Join-Path $oem "Windows11.0-KB5054156-x64.msu"
-          curl -L -o $out $url
+          curl.exe -L -o $out $url
           Get-Item $out | Format-List Name,Length,FullName
 
       - name: Verify MSU SHA256 (strict if provided)
