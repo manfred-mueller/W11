@@ -123,7 +123,7 @@ jobs:
           set -euxo pipefail
           cd Win10_Extracted
 
-          # Detect boot images inside the *same* step
+          # Detect boot images
           UEFI_IMG="efi/microsoft/boot/efisys.bin"
           if [ ! -f "$UEFI_IMG" ]; then
             UEFI_IMG="efi/microsoft/boot/efisys_noprompt.bin"
@@ -131,8 +131,8 @@ jobs:
           [ -f "$UEFI_IMG" ] || { echo "UEFI boot image missing"; exit 1; }
           [ -f "boot/etfsboot.com" ] || { echo "BIOS boot image missing"; exit 1; }
 
-          # Create hybrid BIOS+UEFI ISO with UDF
-          xorriso -as mkisofs \
+          # Use xorrisofs (not: xorriso -as mkisofs), because we need -udf
+          xorrisofs \
             -iso-level 3 \
             -udf \
             -J -joliet-long \
@@ -147,7 +147,7 @@ jobs:
             -no-emul-boot \
             -o "../${ISO_NAME}" \
             .
-
+            
       - name: Compute ISO SHA256
         id: sha256
         run: |
