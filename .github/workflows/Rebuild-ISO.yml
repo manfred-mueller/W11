@@ -1,4 +1,4 @@
-name: Build Custom Windows 11 ISO (Windows Runner, oscdimg via Chocolatey)
+name: Build Custom Windows 11 ISO (Windows Runner, oscdimg via curl)
 
 on:
   push:
@@ -35,19 +35,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install tools (oscdimg from ADK, 7zip, rclone)
+      - name: Get oscdimg.exe (Microsoft Symbol Server) + tools
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          choco install windows-adk-oscdimg -y --no-progress
+          # oscdimg direkt laden
+          curl.exe -L -A "Microsoft-Symbol-Server/10.0.0.0" `
+            "https://msdl.microsoft.com/download/symbols/oscdimg.exe/688CABB065000/oscdimg.exe" `
+            -o oscdimg.exe
+          if (-not (Test-Path .\oscdimg.exe)) { throw "oscdimg.exe download failed." }
+          Unblock-File .\oscdimg.exe
+          "OSCDIMG=$((Resolve-Path .\oscdimg.exe).Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          # 7-Zip & rclone für Extraktion/Upload
           choco install 7zip -y --no-progress
           choco install rclone -y --no-progress
 
-          # Finde den effektiven oscdimg.exe Pfad (Chocolatey legt i.d.R. einen Shim in C:\ProgramData\chocolatey\bin)
-          $osc = (Get-Command oscdimg.exe -ErrorAction Stop).Source
-          "OSCDIMG=$osc" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-          & "$Env:ProgramFiles\7-Zip\7z.exe" | Select-Object -First 1 | Out-Null
+          & "$Env:ProgramFiles\7-Zip\7z.exe" | Out-Null
           rclone version | Out-Null
 
       - name: Download Windows 10 ISO (German)
@@ -181,7 +185,7 @@ jobs:
           tag_name: "v${{ github.run_number }}"
           name: "Custom Windows 11 ISO ($(Get-Date -Format 'yyyy-MM-dd') #${{ github.run_number }})"
           body: |
-            Built on Windows with official oscdimg (UDF + ISO9660; BIOS + UEFI).
+            Built on Windows with oscdimg (UDF + ISO9660; BIOS + UEFI).
             - ISO SHA256: ${{ env.iso_sha256 }}
             **OneDrive (full ISO):** [${{ env.ISO_NAME }}](${{ steps.upload.outputs.link }})
             Verify locally:
