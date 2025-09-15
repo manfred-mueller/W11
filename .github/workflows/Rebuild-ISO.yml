@@ -1,4 +1,4 @@
-name: Build Custom Windows ISO
+name: Build Custom Windows 11 ISO (Windows Runner, oscdimg)
 
 on:
   push:
@@ -25,85 +25,86 @@ env:
   ISO_NAME: windows-11-25h2.iso
   ONEDRIVE_REMOTE: ${{ secrets.ONEDRIVE_REMOTE || 'OneDrive' }}
   ONEDRIVE_PATH: ${{ secrets.ONEDRIVE_PATH || 'W11-Releases' }}
+  # Optional: falls du lieber eine base64-kodierte rclone.conf nutzt
+  RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    name: Create a Win11 bootable ISO with Win10 Setup (OneDrive upload)
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install tools (oscdimg, rclone, 7zip)
+        shell: powershell
         run: |
-          set -euxo pipefail
-          sudo apt update
-          sudo apt install -y p7zip-full wget xorriso dos2unix rclone
+          choco install oscdimg -y --no-progress
+          choco install rclone -y --no-progress
+          choco install 7zip -y --no-progress
+          oscdimg.exe -? | Select-Object -First 1
+          rclone version
 
       - name: Download Windows 10 ISO (German)
+        shell: powershell
         run: |
-          wget -O Win10.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/19041.208.Vibranium-X64-DE-CLIENTPRO%20.ISO"
+          curl -L -o Win10.iso "https://archive.it-bachmann.de/iso/windows/desktop/10/19041.208.Vibranium-X64-DE-CLIENTPRO%20.ISO"
 
       - name: Download Windows 11 ISO (German)
+        shell: powershell
         run: |
-          wget -O Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
+          curl -L -o Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
 
       - name: Extract ISOs
+        shell: powershell
         run: |
-          set -euxo pipefail
-          mkdir -p Win10_Extracted Win11_Extracted
-          7z x -y Win10.iso -oWin10_Extracted
-          7z x -y Win11.iso -oWin11_Extracted
+          & "$Env:ProgramFiles\7-Zip\7z.exe" x -y Win10.iso -oWin10_Extracted | Out-Null
+          & "$Env:ProgramFiles\7-Zip\7z.exe" x -y Win11.iso -oWin11_Extracted | Out-Null
 
-      - name: Replace install.wim
+      - name: Replace install.wim (no split, UDF handles >4GB)
+        shell: powershell
         run: |
-          set -euxo pipefail
-          src_wim=$(find Win11_Extracted -type f -name "install.wim" | head -n 1)
-          dest_dir="Win10_Extracted/sources"
-          if [ -f "$src_wim" ]; then
-            cp -f "$src_wim" "$dest_dir/install.wim"
-          else
-            echo "install.wim not found in Win11 ISO."
-            exit 1
-          fi
+          $src = Get-Item -ErrorAction Stop Win11_Extracted\sources\install.wim
+          Copy-Item $src.FullName Win10_Extracted\sources\install.wim -Force
 
       # === Optional: 25H2 Enablement via SetupComplete (KB5054156) ===
       - name: Prepare $OEM$ Scripts directory
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        run: mkdir -p "Win10_Extracted/sources/\$OEM\$/\$\$/Setup/Scripts"
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts" | Out-Null
 
       - name: Download 25H2 Enablement MSU
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
+        shell: powershell
         run: |
-          oemdir='Win10_Extracted/sources/$OEM$/$$/Setup/Scripts'
-          url='${{ github.event.inputs.ekb_raw_url }}'
-          out="$oemdir/Windows11.0-KB5054156-x64.msu"
-          wget -O "$out" "$url"
-          ls -lh "$out"
+          $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
+          $url = "${{ github.event.inputs.ekb_raw_url }}"
+          $out = Join-Path $oem "Windows11.0-KB5054156-x64.msu"
+          curl -L -o $out $url
+          Get-Item $out | Format-List Name,Length,FullName
 
       - name: Verify MSU SHA256 (strict if provided)
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
+        shell: powershell
         run: |
-          oemdir='Win10_Extracted/sources/$OEM$/$$/Setup/Scripts'
-          file="$oemdir/Windows11.0-KB5054156-x64.msu"
-          echo "Computed SHA256:"
-          sha256sum "$file"
-          if [ -n "${{ github.event.inputs.ekb_sha256 }}" ]; then
-            exp='${{ github.event.inputs.ekb_sha256 }}'
-            got=$(sha256sum "$file" | awk '{print $1}')
-            if [ "$got" != "$exp" ]; then
-              echo "ERROR: SHA256 mismatch!"
-              exit 1
-            fi
-          fi
+          $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
+          $file = Join-Path $oem "Windows11.0-KB5054156-x64.msu"
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+          Write-Host "Computed SHA256: $hash"
+          $exp = "${{ github.event.inputs.ekb_sha256 }}"
+          if ($exp -and $exp.Trim() -ne "" -and ($hash -ne $exp.ToLower())) {
+            throw "SHA256 mismatch: expected $exp but got $hash"
+          }
 
       - name: Write SetupComplete.cmd
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
+        shell: powershell
         run: |
-          oemdir='Win10_Extracted/sources/$OEM$/$$/Setup/Scripts'
-          cat > "$oemdir/SetupComplete.cmd" << 'EOF'
+          $oem = "Win10_Extracted\sources\$OEM$\$$\Setup\Scripts"
+          @'
           @echo off
+          setlocal EnableDelayedExpansion
           set LOG=%WINDIR%\Temp\25H2_EKB.log
           echo [%date% %time%] SetupComplete start >> "%LOG%"
           set MSU=%~dp0Windows11.0-KB5054156-x64.msu
@@ -115,92 +116,71 @@ jobs:
             echo [%date% %time%] EKB MSU not found in %~dp0 >> "%LOG%"
           )
           exit /b 0
-          EOF
-          unix2dos "$oemdir/SetupComplete.cmd" || true
+          '@ | Set-Content -Path (Join-Path $oem "SetupComplete.cmd") -Encoding ASCII
 
-      - name: Build ISO (UEFI + BIOS, with UDF; from Win10_Extracted)
+      - name: Build ISO with oscdimg (UDF + ISO9660, BIOS+UEFI)
+        shell: powershell
         run: |
-          set -euxo pipefail
-          cd Win10_Extracted
+          $uefi = "efi\microsoft\boot\efisys.bin"
+          if (-not (Test-Path "Win10_Extracted\$uefi")) {
+            $uefi = "efi\microsoft\boot\efisys_noprompt.bin"
+          }
+          if (-not (Test-Path "Win10_Extracted\$uefi")) {
+            throw "UEFI boot image not found (efisys*.bin)"
+          }
+          if (-not (Test-Path "Win10_Extracted\boot\etfsboot.com")) {
+            throw "BIOS boot image not found (boot\etfsboot.com)"
+          }
 
-          # Detect boot images
-          UEFI_IMG="efi/microsoft/boot/efisys.bin"
-          if [ ! -f "$UEFI_IMG" ]; then
-            UEFI_IMG="efi/microsoft/boot/efisys_noprompt.bin"
-          fi
-          [ -f "$UEFI_IMG" ] || { echo "UEFI boot image missing"; exit 1; }
-          [ -f "boot/etfsboot.com" ] || { echo "BIOS boot image missing"; exit 1; }
+          # -u2 + -udfver102 = UDF 2.01 Hybrid; -m = ignore size limit; -o = optimize storage
+          oscdimg.exe -m -o -u2 -udfver102 `
+            -bootdata:2#p0,e,bWin10_Extracted\boot\etfsboot.com#pEF,e,bWin10_Extracted\$uefi `
+            Win10_Extracted $env:ISO_NAME
 
-          # Use xorrisofs (not: xorriso -as mkisofs), because we need -udf
-          xorrisofs \
-            -iso-level 3 \
-            -udf \
-            -J -joliet-long \
-            -relaxed-filenames \
-            -volid "WIN11_25H2" \
-            -b boot/etfsboot.com \
-            -no-emul-boot -boot-load-size 8 -boot-info-table \
-            -c boot/boot.catalog \
-            -eltorito-alt-boot \
-            -eltorito-platform efi \
-            -eltorito-boot "$UEFI_IMG" \
-            -no-emul-boot \
-            -o "../${ISO_NAME}" \
-            .
-            
       - name: Compute ISO SHA256
         id: sha256
+        shell: powershell
         run: |
-          HASH=$(sha256sum "${ISO_NAME}" | awk '{print $1}')
-          echo "iso_sha256=$HASH" >> $GITHUB_ENV
-          echo "ISO SHA256: $HASH"
-          echo "${HASH} ${ISO_NAME}" > "${ISO_NAME}.sha256"
+          $h = (Get-FileHash $env:ISO_NAME -Algorithm SHA256).Hash.ToLower()
+          "$h $($env:ISO_NAME)" | Out-File "$env:ISO_NAME.sha256" -Encoding ascii
+          "iso_sha256=$h" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # --- OneDrive upload ---
-      - name: Restore rclone config
-        id: rclone_cfg
-        env:
-          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
+      - name: Configure rclone (from base64 secret)
+        if: ${{ env.RCLONE_CONFIG_BASE64 != '' }}
+        shell: powershell
         run: |
-          set -euxo pipefail
-          mkdir -p ~/.config/rclone
-          if [ -z "${RCLONE_CONFIG_BASE64:-}" ]; then
-            echo "RCLONE_CONFIG_BASE64 secret is missing"
-            exit 1
-          fi
-          echo "$RCLONE_CONFIG_BASE64" | base64 -d > ~/.config/rclone/rclone.conf
-          chmod 600 ~/.config/rclone/rclone.conf
-          rclone version
+          $cfgDir = "$env:APPDATA\rclone"
+          New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+          $bytes = [Convert]::FromBase64String($env:RCLONE_CONFIG_BASE64)
+          [IO.File]::WriteAllBytes((Join-Path $cfgDir 'rclone.conf'), $bytes)
+          rclone config file
 
       - name: Upload ISO + SHA256 to OneDrive and create share link
-        id: od_upload
+        id: upload
+        shell: powershell
+        env:
+          RCLONE_CONFIG: ${{ env.RCLONE_CONFIG }} # optional: falls du stattdessen diesen Weg nutzt
         run: |
-          set -euxo pipefail
-          TARGET="${ONEDRIVE_REMOTE}:${ONEDRIVE_PATH}/$(date +'%Y-%m-%d')-run-${{ github.run_number }}"
-          echo "Uploading to $TARGET"
-          rclone copy "${ISO_NAME}" "${TARGET}" --onedrive-chunk-size 100M --progress=false
-          rclone copy "${ISO_NAME}.sha256" "${TARGET}" --progress=false
-          LINK=$(rclone link "${TARGET}/${ISO_NAME}" || true)
-          echo "onedrive_link=$LINK" >> $GITHUB_ENV
-          echo "link=$LINK" >> $GITHUB_OUTPUT
-
-      # --- Prepare dynamic release title with evaluated date ---
-      - name: Compute release date
-        id: vars
-        run: echo "today=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+          $target = "${{ env.ONEDRIVE_REMOTE }}:${{ env.ONEDRIVE_PATH }}/$(Get-Date -Format 'yyyy-MM-dd')-run-${{ github.run_number }}"
+          rclone mkdir $target | Out-Null
+          rclone copy "$env:ISO_NAME" $target --onedrive-chunk-size 100M --progress=false
+          rclone copy "$env:ISO_NAME.sha256" $target --progress=false
+          $link = (rclone link "$target/$env:ISO_NAME" 2>$null)
+          if (-not $link) { $link = "" }
+          "link=$link" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Create GitHub Release (no ISO asset, link to OneDrive)
         uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "v${{ github.run_number }}"
-          name: "Custom Windows 11 ISO (${{ steps.vars.outputs.today }} #${{ github.run_number }})"
-          body: |
-            Automated build of custom Windows 11 25H2.
-            - ISO SHA256: ${{ env.iso_sha256 }}
-            **OneDrive (full ISO):** [${{ env.ISO_NAME }}](${{ steps.od_upload.outputs.link }})
-            Verify locally:
-            ```bash
-            sha256sum -c [${{ env.ISO_NAME }}].sha256
-            ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v${{ github.run_number }}"
+          name: "Custom Windows 11 ISO ($(Get-Date -Format 'yyyy-MM-dd') #${{ github.run_number }})"
+          body: |
+            Built on Windows with official oscdimg (UDF + ISO9660; BIOS + UEFI).
+            - ISO SHA256: ${{ env.iso_sha256 }}
+            **OneDrive (full ISO):** [${{ env.ISO_NAME }}](${{ steps.upload.outputs.link }})
+            Verify locally:
+            ```powershell
+            Get-FileHash .\${{ env.ISO_NAME }} -Algorithm SHA256
+            ```
