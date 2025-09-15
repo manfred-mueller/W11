@@ -1,4 +1,4 @@
-name: Build Custom Windows 11 ISO (Windows Runner, oscdimg)
+name: Build Custom Windows 11 ISO (Windows Runner, oscdimg via Chocolatey)
 
 on:
   push:
@@ -25,7 +25,6 @@ env:
   ISO_NAME: windows-11-25h2.iso
   ONEDRIVE_REMOTE: ${{ secrets.ONEDRIVE_REMOTE || 'OneDrive' }}
   ONEDRIVE_PATH: ${{ secrets.ONEDRIVE_PATH || 'W11-Releases' }}
-  # Optional: falls du lieber eine base64-kodierte rclone.conf nutzt
   RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
 
 jobs:
@@ -36,14 +35,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install tools (oscdimg, rclone, 7zip)
+      - name: Install tools (oscdimg from ADK, 7zip, rclone)
         shell: powershell
         run: |
-          choco install oscdimg -y --no-progress
-          choco install rclone -y --no-progress
+          $ErrorActionPreference = 'Stop'
+          choco install windows-adk-oscdimg -y --no-progress
           choco install 7zip -y --no-progress
-          oscdimg.exe -? | Select-Object -First 1
-          rclone version
+          choco install rclone -y --no-progress
+
+          # Finde den effektiven oscdimg.exe Pfad (Chocolatey legt i.d.R. einen Shim in C:\ProgramData\chocolatey\bin)
+          $osc = (Get-Command oscdimg.exe -ErrorAction Stop).Source
+          "OSCDIMG=$osc" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          & "$Env:ProgramFiles\7-Zip\7z.exe" | Select-Object -First 1 | Out-Null
+          rclone version | Out-Null
 
       - name: Download Windows 10 ISO (German)
         shell: powershell
@@ -61,7 +66,7 @@ jobs:
           & "$Env:ProgramFiles\7-Zip\7z.exe" x -y Win10.iso -oWin10_Extracted | Out-Null
           & "$Env:ProgramFiles\7-Zip\7z.exe" x -y Win11.iso -oWin11_Extracted | Out-Null
 
-      - name: Replace install.wim (no split, UDF handles >4GB)
+      - name: Replace install.wim (no split; UDF handles >4GB)
         shell: powershell
         run: |
           $src = Get-Item -ErrorAction Stop Win11_Extracted\sources\install.wim
@@ -132,8 +137,7 @@ jobs:
             throw "BIOS boot image not found (boot\etfsboot.com)"
           }
 
-          # -u2 + -udfver102 = UDF 2.01 Hybrid; -m = ignore size limit; -o = optimize storage
-          oscdimg.exe -m -o -u2 -udfver102 `
+          & "$env:OSCDIMG" -m -o -u2 -udfver102 `
             -bootdata:2#p0,e,bWin10_Extracted\boot\etfsboot.com#pEF,e,bWin10_Extracted\$uefi `
             Win10_Extracted $env:ISO_NAME
 
@@ -159,7 +163,7 @@ jobs:
         id: upload
         shell: powershell
         env:
-          RCLONE_CONFIG: ${{ env.RCLONE_CONFIG }} # optional: falls du stattdessen diesen Weg nutzt
+          RCLONE_CONFIG: ${{ env.RCLONE_CONFIG }} # optional alternative to BASE64
         run: |
           $target = "${{ env.ONEDRIVE_REMOTE }}:${{ env.ONEDRIVE_PATH }}/$(Get-Date -Format 'yyyy-MM-dd')-run-${{ github.run_number }}"
           rclone mkdir $target | Out-Null
