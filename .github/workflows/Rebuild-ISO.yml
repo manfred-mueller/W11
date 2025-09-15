@@ -24,7 +24,7 @@ permissions:
 env:
   ISO_NAME: windows-11-25h2.iso
   ONEDRIVE_REMOTE: ${{ secrets.ONEDRIVE_REMOTE || 'OneDrive' }}
-  ONEDRIVE_PATH:   ${{ secrets.ONEDRIVE_PATH   || 'W11-Releases' }}
+  ONEDRIVE_PATH: ${{ secrets.ONEDRIVE_PATH || 'W11-Releases' }}
 
 jobs:
   build:
@@ -106,7 +106,6 @@ jobs:
           @echo off
           set LOG=%WINDIR%\Temp\25H2_EKB.log
           echo [%date% %time%] SetupComplete start >> "%LOG%"
-
           set MSU=%~dp0Windows11.0-KB5054156-x64.msu
           if exist "%MSU%" (
             echo [%date% %time%] Installing EKB: %MSU% >> "%LOG%"
@@ -119,10 +118,12 @@ jobs:
           EOF
           unix2dos "$oemdir/SetupComplete.cmd" || true
 
-      - name: Rebuild ISO using xorriso (BIOS + UEFI, multi-extent OK)
+      - name: Build ISO (UEFI + BIOS, with UDF; from Win10_Extracted)
         run: |
           set -euxo pipefail
-          pushd Win10_Extracted
+          cd Win10_Extracted
+
+          # Detect boot images inside the *same* step
           UEFI_IMG="efi/microsoft/boot/efisys.bin"
           if [ ! -f "$UEFI_IMG" ]; then
             UEFI_IMG="efi/microsoft/boot/efisys_noprompt.bin"
@@ -130,9 +131,7 @@ jobs:
           [ -f "$UEFI_IMG" ] || { echo "UEFI boot image missing"; exit 1; }
           [ -f "boot/etfsboot.com" ] || { echo "BIOS boot image missing"; exit 1; }
 
-      - name: Build ISO (UEFI + BIOS, with UDF)
-        run: |
-          pushd Build
+          # Create hybrid BIOS+UEFI ISO with UDF
           xorriso -as mkisofs \
             -iso-level 3 \
             -udf \
@@ -148,15 +147,14 @@ jobs:
             -no-emul-boot \
             -o "../${ISO_NAME}" \
             .
-          popd
-          
+
       - name: Compute ISO SHA256
         id: sha256
         run: |
           HASH=$(sha256sum "${ISO_NAME}" | awk '{print $1}')
           echo "iso_sha256=$HASH" >> $GITHUB_ENV
           echo "ISO SHA256: $HASH"
-          echo "${HASH}  ${ISO_NAME}" > "${ISO_NAME}.sha256"
+          echo "${HASH} ${ISO_NAME}" > "${ISO_NAME}.sha256"
 
       # --- OneDrive upload ---
       - name: Restore rclone config
@@ -167,7 +165,8 @@ jobs:
           set -euxo pipefail
           mkdir -p ~/.config/rclone
           if [ -z "${RCLONE_CONFIG_BASE64:-}" ]; then
-            echo "RCLONE_CONFIG_BASE64 secret is missing"; exit 1
+            echo "RCLONE_CONFIG_BASE64 secret is missing"
+            exit 1
           fi
           echo "$RCLONE_CONFIG_BASE64" | base64 -d > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
@@ -181,11 +180,11 @@ jobs:
           echo "Uploading to $TARGET"
           rclone copy "${ISO_NAME}" "${TARGET}" --onedrive-chunk-size 100M --progress=false
           rclone copy "${ISO_NAME}.sha256" "${TARGET}" --progress=false
-          LINK=$(rclone link "${TARGET}/${ISO_NAME}")
+          LINK=$(rclone link "${TARGET}/${ISO_NAME}" || true)
           echo "onedrive_link=$LINK" >> $GITHUB_ENV
           echo "link=$LINK" >> $GITHUB_OUTPUT
 
-      # --- Prepare dynamic release title with evaluated date (no shell in name field) ---
+      # --- Prepare dynamic release title with evaluated date ---
       - name: Compute release date
         id: vars
         run: echo "today=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
@@ -194,15 +193,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ github.run_number }}"
-          # Use the computed date from the 'vars' step:
           name: "Custom Windows 11 ISO (${{ steps.vars.outputs.today }} #${{ github.run_number }})"
           body: |
             Automated build of custom Windows 11 25H2.
-
             - ISO SHA256: ${{ env.iso_sha256 }}
-
-            🔗 **OneDrive (full ISO):** [${{ env.ISO_NAME }}](${{ steps.od_upload.outputs.link }})
-
+            **OneDrive (full ISO):** [${{ env.ISO_NAME }}](${{ steps.od_upload.outputs.link }})
             Verify locally:
             ```bash
             sha256sum -c [${{ env.ISO_NAME }}].sha256
