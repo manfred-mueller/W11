@@ -1,6 +1,8 @@
 name: Build Custom Windows ISO
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       enable_25h2:
@@ -128,20 +130,26 @@ jobs:
           [ -f "$UEFI_IMG" ] || { echo "UEFI boot image missing"; exit 1; }
           [ -f "boot/etfsboot.com" ] || { echo "BIOS boot image missing"; exit 1; }
 
+      - name: Build ISO (UEFI + BIOS, with UDF)
+        run: |
+          pushd Build
           xorriso -as mkisofs \
             -iso-level 3 \
+            -udf \
             -J -joliet-long \
             -relaxed-filenames \
-            -volid "CUSTOM_WIN11" \
+            -volid "WIN11_25H2" \
             -b boot/etfsboot.com \
-              -no-emul-boot -boot-load-size 8 -boot-info-table \
+            -no-emul-boot -boot-load-size 8 -boot-info-table \
+            -c boot/boot.catalog \
             -eltorito-alt-boot \
-            -e "$UEFI_IMG" \
-              -no-emul-boot \
-            -o ../${ISO_NAME} \
+            -eltorito-platform efi \
+            -eltorito-boot "$UEFI_IMG" \
+            -no-emul-boot \
+            -o "../${ISO_NAME}" \
             .
           popd
-
+          
       - name: Compute ISO SHA256
         id: sha256
         run: |
