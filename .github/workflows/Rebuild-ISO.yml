@@ -39,7 +39,6 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          # oscdimg direkt laden (keine ADK/Chocolatey-Abhängigkeit)
           curl.exe -L -A "Microsoft-Symbol-Server/10.0.0.0" `
             "https://msdl.microsoft.com/download/symbols/oscdimg.exe/688CABB065000/oscdimg.exe" `
             -o oscdimg.exe
@@ -47,13 +46,11 @@ jobs:
           Unblock-File .\oscdimg.exe
           "OSCDIMG=$((Resolve-Path .\oscdimg.exe).Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-          # 7-Zip & rclone installieren
           choco install 7zip -y --no-progress
           choco install rclone -y --no-progress
           & "$Env:ProgramFiles\7-Zip\7z.exe" | Out-Null
           rclone version | Out-Null
 
-      # --- OneDrive / rclone Konfiguration (Windows-Port deiner Linux-Variante) ---
       - name: Restore rclone config (Windows, from BASE64)
         shell: powershell
         env:
@@ -67,7 +64,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
           $bytes = [Convert]::FromBase64String($env:RCLONE_CONFIG_BASE64)
           [IO.File]::WriteAllBytes((Join-Path $cfgDir 'rclone.conf'), $bytes)
-          Write-Host "rclone.conf written to $cfgDir"
           rclone listremotes
 
       - name: Download Windows 10 ISO (German)
@@ -86,13 +82,13 @@ jobs:
           & "$Env:ProgramFiles\7-Zip\7z.exe" x -y Win10.iso -oWin10_Extracted | Out-Null
           & "$Env:ProgramFiles\7-Zip\7z.exe" x -y Win11.iso -oWin11_Extracted | Out-Null
 
-      - name: Replace install.wim (no split; UDF handles >4GB)
+      - name: Replace install.wim
         shell: powershell
         run: |
           $src = Get-Item -ErrorAction Stop Win11_Extracted\sources\install.wim
           Copy-Item $src.FullName Win10_Extracted\sources\install.wim -Force
 
-      # === Optional: 25H2 Enablement via SetupComplete (KB5054156) ===
+      # --- 25H2 Enablement via SetupComplete (optional) ---
       - name: Prepare $OEM$ Scripts directory
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         shell: powershell
@@ -109,7 +105,7 @@ jobs:
           curl.exe -L -o $out $url
           Get-Item $out | Format-List Name,Length,FullName
 
-      - name: Verify MSU SHA256 (strict if provided)
+      - name: Verify MSU SHA256
         if: ${{ github.event.inputs.enable_25h2 == 'true' }}
         shell: powershell
         run: |
@@ -143,6 +139,16 @@ jobs:
           exit /b 0
           '@ | Set-Content -Path (Join-Path $oem 'SetupComplete.cmd') -Encoding ASCII
 
+      - name: Validate $OEM$ content
+        if: ${{ github.event.inputs.enable_25h2 == 'true' }}
+        shell: powershell
+        run: |
+          $base = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
+          if (!(Test-Path $base)) { throw "$base missing" }
+          if (!(Test-Path (Join-Path $base 'Windows11.0-KB5054156-x64.msu'))) { throw "MSU missing in $base" }
+          if (!(Test-Path (Join-Path $base 'SetupComplete.cmd'))) { throw "SetupComplete.cmd missing in $base" }
+          Write-Host "OEM tree:"; Get-ChildItem 'Win10_Extracted\sources\$OEM$' -Recurse | ForEach-Object FullName
+
       - name: Build ISO with oscdimg (UDF + ISO9660, BIOS+UEFI)
         shell: powershell
         run: |
@@ -150,13 +156,6 @@ jobs:
           if (-not (Test-Path "Win10_Extracted\$uefi")) {
             $uefi = "efi\microsoft\boot\efisys_noprompt.bin"
           }
-          if (-not (Test-Path "Win10_Extracted\$uefi")) {
-            throw "UEFI boot image not found (efisys*.bin)"
-          }
-          if (-not (Test-Path "Win10_Extracted\boot\etfsboot.com")) {
-            throw "BIOS boot image not found (boot\etfsboot.com)"
-          }
-
           & "$env:OSCDIMG" -m -o -u2 -udfver102 `
             -bootdata:2#p0,e,bWin10_Extracted\boot\etfsboot.com#pEF,e,bWin10_Extracted\$uefi `
             Win10_Extracted $env:ISO_NAME
