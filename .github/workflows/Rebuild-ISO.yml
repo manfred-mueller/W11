@@ -4,19 +4,6 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      enable_25h2:
-        description: "Integrate 25H2 enablement package (KB5054156) via SetupComplete?"
-        required: false
-        default: "true"
-      ekb_raw_url:
-        description: "Raw URL to Windows11.0-KB5054156-x64.msu"
-        required: false
-        default: "https://raw.githubusercontent.com/LLuna-a/Windows-11-KB5054156-Update-Package/main/Windows11.0-KB5054156-x64.msu"
-      ekb_sha256:
-        description: "Expected SHA256 of the MSU (leave empty to skip strict verification)"
-        required: false
-        default: ""
 
 permissions:
   contents: write
@@ -74,7 +61,7 @@ jobs:
       - name: Download Windows 11 ISO (German)
         shell: powershell
         run: |
-          curl.exe -L -o Win11.iso "https://archive.it-bachmann.de/iso/windows/desktop/11/26100.1.Germanium-X64-DE-XXL-SUPER-MULTI.ISO"
+          curl.exe -L -o Win11.iso "https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/26200.6584.250915-1905.25h2_ge_release_svc_refresh_CLIENT_CONSUMER_x64FRE_de-de.iso"
 
       - name: Extract ISOs
         shell: powershell
@@ -87,67 +74,6 @@ jobs:
         run: |
           $src = Get-Item -ErrorAction Stop Win11_Extracted\sources\install.wim
           Copy-Item $src.FullName Win10_Extracted\sources\install.wim -Force
-
-      # --- 25H2 Enablement via SetupComplete (optional) ---
-      - name: Prepare $OEM$ Scripts directory
-        if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts' | Out-Null
-
-      - name: Download 25H2 Enablement MSU
-        if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        shell: powershell
-        run: |
-          $oem = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
-          $url = "${{ github.event.inputs.ekb_raw_url }}"
-          $out = Join-Path $oem 'Windows11.0-KB5054156-x64.msu'
-          curl.exe -L -o $out $url
-          Get-Item $out | Format-List Name,Length,FullName
-
-      - name: Verify MSU SHA256
-        if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        shell: powershell
-        run: |
-          $oem = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
-          $file = Join-Path $oem 'Windows11.0-KB5054156-x64.msu'
-          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
-          Write-Host "Computed SHA256: $hash"
-          $exp = "${{ github.event.inputs.ekb_sha256 }}"
-          if ($exp -and $exp.Trim() -ne "" -and ($hash -ne $exp.ToLower())) {
-            throw "SHA256 mismatch: expected $exp but got $hash"
-          }
-
-      - name: Write SetupComplete.cmd
-        if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        shell: powershell
-        run: |
-          $oem = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
-          @'
-          @echo off
-          setlocal EnableDelayedExpansion
-          set LOG=%WINDIR%\Temp\25H2_EKB.log
-          echo [%date% %time%] SetupComplete start >> "%LOG%"
-          set MSU=%~dp0Windows11.0-KB5054156-x64.msu
-          if exist "%MSU%" (
-            echo [%date% %time%] Installing EKB: %MSU% >> "%LOG%"
-            wusa.exe "%MSU%" /quiet /norestart >> "%LOG%" 2>&1
-            echo [%date% %time%] wusa exitcode: !errorlevel! >> "%LOG%"
-          ) else (
-            echo [%date% %time%] EKB MSU not found in %~dp0 >> "%LOG%"
-          )
-          exit /b 0
-          '@ | Set-Content -Path (Join-Path $oem 'SetupComplete.cmd') -Encoding ASCII
-
-      - name: Validate $OEM$ content
-        if: ${{ github.event.inputs.enable_25h2 == 'true' }}
-        shell: powershell
-        run: |
-          $base = 'Win10_Extracted\sources\$OEM$\$$\Setup\Scripts'
-          if (!(Test-Path $base)) { throw "$base missing" }
-          if (!(Test-Path (Join-Path $base 'Windows11.0-KB5054156-x64.msu'))) { throw "MSU missing in $base" }
-          if (!(Test-Path (Join-Path $base 'SetupComplete.cmd'))) { throw "SetupComplete.cmd missing in $base" }
-          Write-Host "OEM tree:"; Get-ChildItem 'Win10_Extracted\sources\$OEM$' -Recurse | ForEach-Object FullName
 
       - name: Build ISO with oscdimg (UDF + ISO9660, BIOS+UEFI)
         shell: powershell
